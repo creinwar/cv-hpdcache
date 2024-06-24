@@ -52,6 +52,9 @@ module hpdcache_plru
     input  way_vector_t           repl_dir_valid_i,
     input  logic                  repl_updt_plru_i,
 
+    //      Configuration interface
+    input  way_vector_t           cfg_dspm_ways_i,
+
     output way_vector_t           victim_way_o
 );
     //  }}}
@@ -68,13 +71,13 @@ module hpdcache_plru
     //  {{{
     hpdcache_prio_1hot_encoder #(.N(WAYS))
         used_victim_select_i (
-            .val_i     (~plru_q[repl_set_i]),
+            .val_i     (~plru_q[repl_set_i] & ~cfg_dspm_ways_i),
             .val_o     (used_victim_way)
         );
 
     hpdcache_prio_1hot_encoder #(.N(WAYS))
         unused_victim_select_i (
-            .val_i     (~repl_dir_valid_i),
+            .val_i     (~repl_dir_valid_i & ~cfg_dspm_ways_i),
             .val_o     (unused_victim_way)
         );
 

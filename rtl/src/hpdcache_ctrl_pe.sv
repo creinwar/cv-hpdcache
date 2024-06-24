@@ -71,6 +71,9 @@ module hpdcache_ctrl_pe
     input  logic                   st1_req_is_cmo_inval_i,
     input  logic                   st1_req_is_cmo_fence_i,
     input  logic                   st1_req_is_cmo_prefetch_i,
+    input  logic                   st1_req_is_cache_req_i,
+    input  logic                   st1_req_is_dspm_req_i,
+    input  logic                   st1_req_is_ispm_req_i,
     output logic                   st1_req_valid_o,
     output logic                   st1_rsp_valid_o,
     output logic                   st1_rsp_aborted_o,
@@ -377,8 +380,15 @@ module hpdcache_ctrl_pe
                             //  Do not consume a request in this cycle in stage 0
                             st1_nop = 1'b1;
 
+                            if(st1_req_is_dspm_req_i) begin
+                                st1_rsp_valid_o = st1_req_need_rsp_i;
+                            end
+                            else if(st1_req_is_ispm_req_i) begin
+                                st1_rsp_valid_o = st1_req_need_rsp_i;
+                            end
+
                             //  Pending miss on the same line
-                            if (mshr_hit_i) begin
+                            else if (mshr_hit_i) begin
                                 //  Put the request in the replay table
                                 st1_rtab_alloc = 1'b1;
 
@@ -432,7 +442,6 @@ module hpdcache_ctrl_pe
                             end
                         end
                         //  }}}
-
                         //  Cache hit
                         //  {{{
                         else begin
@@ -490,8 +499,24 @@ module hpdcache_ctrl_pe
                         //  RAM and the data RAM chip-select.
                         st1_req_cachedata_write_o = 1'b1;
 
-                        //  Cache miss
+                        //  Cache miss or SPM access
                         if (!cachedir_hit_i) begin
+                            if(st1_req_is_dspm_req_i) begin
+                                evt_write_req_o = 1'b1;
+                                evt_prefetch_req_o = 1'b1;
+
+                                //  Respond to the core
+                                st1_rsp_valid_o = st1_req_need_rsp_i;
+
+                                //  Write in the data RAM
+                                st1_req_cachedata_write_enable_o = 1'b1;
+                            end
+                            else if(st1_req_is_ispm_req_i) begin
+                                st1_rsp_valid_o = st1_req_need_rsp_i;
+                                evt_write_req_o = 1'b1;
+                                evt_prefetch_req_o = 1'b1;
+                            end
+
                             //  Pending miss on the same line
                             if (mshr_hit_i) begin
                                 //  Put the request in the replay table
@@ -527,7 +552,6 @@ module hpdcache_ctrl_pe
                                 evt_write_req_o        = 1'b1;
                             end
                         end
-
                         //  Cache hit
                         else begin
                             //  No available entry in the write buffer (or conflict on pending entry)

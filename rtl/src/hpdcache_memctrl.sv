@@ -45,6 +45,7 @@ import hpdcache_pkg::*;
     input  hpdcache_set_t                       dir_match_set_i,
     input  hpdcache_tag_t                       dir_match_tag_i,
     input  logic                                dir_update_lru_i,
+    input  logic                                dir_is_spm_access_i,
     output hpdcache_way_vector_t                dir_hit_way_o,
 
     input  logic                                dir_amo_match_i,
@@ -98,7 +99,13 @@ import hpdcache_pkg::*;
     input  hpdcache_way_vector_t                data_refill_way_i,
     input  hpdcache_set_t                       data_refill_set_i,
     input  hpdcache_word_t                      data_refill_word_i,
-    input  hpdcache_refill_data_t               data_refill_data_i
+    input  hpdcache_refill_data_t               data_refill_data_i,
+    //      }}}
+
+    //      SPM configuration input
+    //      {{{
+    input  logic                                cfg_enable_dspm_i,
+    input  hpdcache_way_vector_t                cfg_dspm_ways_i
     //      }}}
 );
     //  }}}
@@ -181,13 +188,14 @@ import hpdcache_pkg::*;
     hpdcache_dir_entry_t                       init_dir_wentry;
 
     //      Directory valid bit vector (one bit per set and way)
-    hpdcache_way_vector_t [HPDCACHE_SETS-1:0]  dir_valid_q, dir_valid_d;
+    hpdcache_way_vector_t [HPDCACHE_SETS-1:0]  dir_valid_q, dir_valid_d, dir_spm_mask;
     hpdcache_set_t                             dir_req_set_q, dir_req_set_d;
     hpdcache_dir_addr_t                        dir_addr;
     hpdcache_way_vector_t                      dir_cs;
     hpdcache_way_vector_t                      dir_we;
     hpdcache_dir_entry_t  [HPDCACHE_WAYS-1:0]  dir_wentry;
     hpdcache_dir_entry_t  [HPDCACHE_WAYS-1:0]  dir_rentry;
+    hpdcache_way_vector_t                      dir_spm_way;
 
     hpdcache_data_addr_t                       data_addr;
     hpdcache_data_enable_t                     data_cs;
@@ -340,6 +348,7 @@ import hpdcache_pkg::*;
     //  {{{
     always_comb
     begin : dir_valid_comb
+        dir_spm_mask = {HPDCACHE_SETS{~cfg_dspm_ways_i}};
         dir_valid_d = dir_valid_q;
 
         unique case (1'b1)
@@ -354,7 +363,10 @@ import hpdcache_pkg::*;
             default: begin
                 // do nothing
             end
-        endcase
+        endcase // unique case (1'b1)
+
+        // Ensure that SPM ways never have a valid directory entry
+        dir_valid_d &= dir_spm_mask;
     end
     //  }}}
 
@@ -379,6 +391,11 @@ import hpdcache_pkg::*;
             assign dir_hit_way_o          [gen_i] = dir_valid_q[dir_req_set_q][gen_i] & req_hit[gen_i],
                    dir_amo_hit_way_o      [gen_i] = dir_valid_q[dir_req_set_q][gen_i] & amo_hit[gen_i],
                    dir_cmo_check_hit_way_o[gen_i] = dir_valid_q[dir_req_set_q][gen_i] & cmo_hit[gen_i];
+
+            // The SPM way to use is immediately derived from the lower bits of the tag
+            assign dir_spm_way[gen_i] = (unsigned'(int'(dir_match_tag_i[$clog2(HPDCACHE_WAYS)-1:0])) == unsigned'(gen_i)) &
+                                        cfg_dspm_ways_i[gen_i] &
+                                        dir_is_spm_access_i;
         end
     endgenerate
     //  }}}
@@ -406,6 +423,8 @@ import hpdcache_pkg::*;
         .repl_set_i          (dir_refill_set_i),
         .repl_dir_valid_i    (dir_valid_q[dir_refill_set_i]),
         .repl_updt_plru_i    (dir_refill_updt_plru_i),
+
+        .cfg_dspm_ways_i,
 
         .victim_way_o        (dir_victim_way_o)
     );
@@ -507,9 +526,10 @@ import hpdcache_pkg::*;
     end
 
     //  Multiplex between read and write access on the data RAM
-    assign  data_way = data_refill_i    ? data_refill_way_i :
-                       data_amo_write_i ? dir_amo_hit_way_o :
-                                          dir_hit_way_o;
+    assign  data_way = data_refill_i       ? data_refill_way_i :
+                       data_amo_write_i    ? dir_amo_hit_way_o :
+                       dir_is_spm_access_i ? dir_spm_way       :
+                                             dir_hit_way_o;
 
     //  Decode way index
     assign  data_ram_word = hpdcache_way_to_data_ram_word(data_way),
@@ -626,7 +646,7 @@ import hpdcache_pkg::*;
             .ONE_HOT_SEL (1'b1)
         ) data_read_req_word_way_mux_i(
             .data_i      (data_read_req_word),
-            .sel_i       (dir_hit_way_o),
+            .sel_i       (dir_hit_way_o | dir_spm_way),
             .data_o      (data_req_read_data_o)
         );
     endgenerate
