@@ -122,6 +122,9 @@ module hpdcache_ctrl_pe
     input  logic                   mshr_full_i,
     //   }}}
 
+    output logic                   ispm_req_submit_o,
+    input  logic                   ispm_req_pend_i,
+
     //   Refill interface
     //   {{{
     input  logic                   refill_busy_i,
@@ -249,6 +252,8 @@ module hpdcache_ctrl_pe
         st2_nop                             = 1'b0;
 
         nop                                 = 1'b0;
+
+        ispm_req_submit_o                   = 1'b0;
 
         rtab_check_o                        = 1'b0;
         st1_rtab_alloc                      = 1'b0;
@@ -382,9 +387,17 @@ module hpdcache_ctrl_pe
 
                             if(st1_req_is_dspm_req_i) begin
                                 st1_rsp_valid_o = st1_req_need_rsp_i;
+
+                                // SPM access is happening in the same cycle so
+                                // we don't have to stall
+                                st1_nop = 1'b0;
+
+                                //  Performance event
+                                evt_read_req_o     = ~st1_req_is_cmo_prefetch_i;
                             end
                             else if(st1_req_is_ispm_req_i) begin
-                                st1_rsp_valid_o = st1_req_need_rsp_i;
+                                ispm_req_submit_o  = 1'b1;
+                                evt_read_req_o     = 1'b1;
                             end
 
                             //  Pending miss on the same line
@@ -503,7 +516,6 @@ module hpdcache_ctrl_pe
                         if (!cachedir_hit_i) begin
                             if(st1_req_is_dspm_req_i) begin
                                 evt_write_req_o = 1'b1;
-                                evt_prefetch_req_o = 1'b1;
 
                                 //  Respond to the core
                                 st1_rsp_valid_o = st1_req_need_rsp_i;
@@ -512,13 +524,12 @@ module hpdcache_ctrl_pe
                                 st1_req_cachedata_write_enable_o = 1'b1;
                             end
                             else if(st1_req_is_ispm_req_i) begin
-                                st1_rsp_valid_o = st1_req_need_rsp_i;
-                                evt_write_req_o = 1'b1;
-                                evt_prefetch_req_o = 1'b1;
+                                ispm_req_submit_o  = 1'b1;
+                                evt_write_req_o    = 1'b1;
                             end
 
                             //  Pending miss on the same line
-                            if (mshr_hit_i) begin
+                            else if (mshr_hit_i) begin
                                 //  Put the request in the replay table
                                 st1_rtab_alloc = 1'b1;
 
@@ -614,7 +625,8 @@ module hpdcache_ctrl_pe
                                & ~rtab_full_i
                                & ~cmo_busy_i
                                & ~uc_busy_i
-                               & ~nop;
+                               & ~nop
+                               & ~ispm_req_pend_i;
 
             rtab_req_ready_o = rtab_req_valid_i
                                & ~refill_req_valid_i

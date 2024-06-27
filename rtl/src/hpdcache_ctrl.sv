@@ -47,6 +47,18 @@ import hpdcache_pkg::*;
     output logic                  core_rsp_valid_o,
     output hpdcache_rsp_t         core_rsp_o,
 
+    //      ISPM request interface
+    output logic                  ispm_req_valid_o,
+    input  logic                  ispm_req_ready_i,
+    output hpdcache_req_t         ispm_req_o,
+    output logic                  ispm_req_abort_o,
+    output hpdcache_tag_t         ispm_req_tag_o,
+    output hpdcache_pma_t         ispm_req_pma_o,
+
+    //      ISPM response interface
+    input  logic                  ispm_rsp_valid_i,
+    input  hpdcache_rsp_t         ispm_rsp_i,
+
     //      Force the write buffer to send all pending writes
     input  logic                  wbuf_flush_i,
 
@@ -290,8 +302,70 @@ import hpdcache_pkg::*;
 
     logic                    hpdcache_init_ready;
 
+    logic                    ispm_req_submit_pe;
+    logic                    ispm_req_pend_ctrl;
+
+    logic                    ispm_req_valid_d, ispm_req_valid_q;
+    logic                    ispm_rsp_valid, ispm_rsp_valid_d, ispm_rsp_valid_q;
+    hpdcache_req_t           ispm_req_d, ispm_req_q;
+    hpdcache_rsp_t           ispm_rsp, ispm_rsp_d, ispm_rsp_q;
+
+    // Pass through the arbitrated request to the ISPM always
+    // Only the valid/ready handshake is controlled by the protocol engine
+    assign ispm_req_abort_o   = st1_req_abort;
+    assign ispm_req_tag_o     = ispm_req_o.addr_tag;
+    assign ispm_req_pma_o     = ispm_req_o.pma;
+    assign ispm_req_pend_ctrl = ispm_req_valid_o;
+
+    // Handle ISPM requests by keeping valid asserted and blocking new core requests
+    // until the current request was acknowledged
+    always_comb begin
+       ispm_req_d       = ispm_req_q;
+       ispm_req_valid_d = ispm_req_valid_q;
+       ispm_rsp_d       = ispm_rsp_q;
+       ispm_rsp_valid_d = ispm_rsp_valid_q;
+
+       // Default output assignments
+       ispm_req_o         = ispm_req_q;
+       ispm_req_valid_o   = ispm_req_valid_q;
+       ispm_rsp           = ispm_rsp_q;
+       ispm_rsp_valid     = 1'b0;
+
+       if (ispm_req_submit_pe) begin
+          ispm_req_d         = st1_req;
+          ispm_req_o         = st1_req;
+          ispm_req_valid_d   = 1'b1;
+          ispm_req_valid_o   = 1'b1;
+       end
+
+       if (ispm_rsp_valid_i) begin
+          ispm_req_d       = '0;
+          ispm_rsp         = ispm_rsp_i;
+          ispm_rsp_d       = ispm_rsp_i;
+          ispm_req_valid_d = 1'b0;
+          ispm_rsp_valid_d = 1'b1;
+       end
+
+       if (ispm_rsp_valid_i | ispm_rsp_valid_q) begin
+          ispm_rsp_valid   = ispm_req_q.need_rsp;
+          ispm_rsp_valid_d = 1'b0;
+       end
+    end
 
 
+    always_ff @(posedge clk_i, negedge rst_ni) begin
+       if(~rst_ni) begin
+          ispm_req_q       <= '0;
+          ispm_req_valid_q <= 1'b0;
+          ispm_rsp_q       <= '0;
+          ispm_rsp_valid_q <= 1'b0;
+       end else begin
+          ispm_req_q       <= ispm_req_d;
+          ispm_req_valid_q <= ispm_req_valid_d;
+          ispm_rsp_q       <= ispm_rsp_d;
+          ispm_rsp_valid_q <= ispm_rsp_valid_d;
+       end
+    end
 
     // This defines which address ranges are attributed to the SPMs
     // Any space between the DSPM and ISPM does not get an extra rule
@@ -520,6 +594,9 @@ import hpdcache_pkg::*;
         .mshr_alloc_ready_i                 (miss_mshr_alloc_ready_i),
         .mshr_hit_i                         (miss_mshr_hit_i),
         .mshr_full_i                        (miss_mshr_alloc_full_i),
+
+        .ispm_req_submit_o                  (ispm_req_submit_pe),
+        .ispm_req_pend_i                 (ispm_req_pend_ctrl),
 
         .refill_busy_i,
         .refill_core_rsp_valid_i,
@@ -812,19 +889,23 @@ import hpdcache_pkg::*;
     //  {{{
     assign core_rsp_valid_o   = refill_core_rsp_valid_i                     |
                                 (uc_core_rsp_valid_i & uc_core_rsp_ready_o) |
-                                st1_rsp_valid,
+                                 st1_rsp_valid                              |
+                                 ispm_rsp_valid,
            core_rsp_o.rdata   = (refill_core_rsp_valid_i ? refill_core_rsp_i.rdata :
                                 (uc_core_rsp_valid_i     ? uc_core_rsp_i.rdata     :
-                                st1_read_data)),
+                                (ispm_rsp_valid          ? ispm_rsp.rdata          :
+                                 st1_read_data))),
            core_rsp_o.sid     = (refill_core_rsp_valid_i ? refill_core_rsp_i.sid   :
                                 (uc_core_rsp_valid_i     ? uc_core_rsp_i.sid       :
-                                st1_req.sid)),
+                                (ispm_rsp_valid          ? ispm_rsp.sid            :
+                                 st1_req.sid))),
            core_rsp_o.tid     = (refill_core_rsp_valid_i ? refill_core_rsp_i.tid   :
                                 (uc_core_rsp_valid_i     ? uc_core_rsp_i.tid       :
-                                st1_req.tid)),
+                                (ispm_rsp_valid          ? ispm_rsp.tid            :
+                                 st1_req.tid))),
            core_rsp_o.error   = (refill_core_rsp_valid_i ? refill_core_rsp_i.error :
                                 (uc_core_rsp_valid_i     ? uc_core_rsp_i.error     :
-                                1'b0)),
+                                 1'b0)),
            core_rsp_o.aborted = st1_rsp_aborted;
     //  }}}
 

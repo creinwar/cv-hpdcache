@@ -62,6 +62,20 @@ import hpdcache_pkg::*;
     output logic                          core_rsp_valid_o [NREQUESTERS-1:0],
     output hpdcache_rsp_t                 core_rsp_o       [NREQUESTERS-1:0],
 
+    //      ISPM request interface
+    //         1st cycle
+    output logic                          ispm_req_valid_o,
+    input  logic                          ispm_req_ready_i,
+    output hpdcache_req_t                 ispm_req_o,
+    //         2nd cycle
+    output logic                          ispm_req_abort_o,
+    output hpdcache_tag_t                 ispm_req_tag_o,
+    output hpdcache_pma_t                 ispm_req_pma_o,
+
+    //      ISPM response interface
+    input  logic                          ispm_rsp_valid_i,
+    input  hpdcache_rsp_t                 ispm_rsp_i,
+
     //      Miss read interface
     input  logic                          mem_req_miss_read_ready_i,
     output logic                          mem_req_miss_read_valid_o,
@@ -308,6 +322,16 @@ import hpdcache_pkg::*;
 
         .core_rsp_valid_o                   (core_rsp_valid),
         .core_rsp_o                         (core_rsp),
+
+        .ispm_req_valid_o,
+        .ispm_req_ready_i,
+        .ispm_req_o,
+        .ispm_req_abort_o,
+        .ispm_req_tag_o,
+        .ispm_req_pma_o,
+
+        .ispm_rsp_valid_i,
+        .ispm_rsp_i,
 
         .wbuf_flush_i,
 
