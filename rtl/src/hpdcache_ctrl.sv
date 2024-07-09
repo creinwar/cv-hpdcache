@@ -49,7 +49,6 @@ import hpdcache_pkg::*;
 
     //      ISPM request interface
     output logic                  ispm_req_valid_o,
-    input  logic                  ispm_req_ready_i,
     output hpdcache_req_t         ispm_req_o,
     output logic                  ispm_req_abort_o,
     output hpdcache_tag_t         ispm_req_tag_o,
@@ -307,6 +306,7 @@ import hpdcache_pkg::*;
 
     logic                    ispm_req_valid_d, ispm_req_valid_q;
     logic                    ispm_rsp_valid, ispm_rsp_valid_d, ispm_rsp_valid_q;
+    logic                    ispm_need_rsp_d, ispm_need_rsp_q;
     hpdcache_req_t           ispm_req_d, ispm_req_q;
     hpdcache_rsp_t           ispm_rsp, ispm_rsp_d, ispm_rsp_q;
 
@@ -315,11 +315,12 @@ import hpdcache_pkg::*;
     assign ispm_req_abort_o   = st1_req_abort;
     assign ispm_req_tag_o     = ispm_req_o.addr_tag;
     assign ispm_req_pma_o     = ispm_req_o.pma;
-    assign ispm_req_pend_ctrl = ispm_req_valid_o;
+    assign ispm_req_pend_ctrl = ispm_req_valid_q;
 
     // Handle ISPM requests by keeping valid asserted and blocking new core requests
     // until the current request was acknowledged
     always_comb begin
+       ispm_need_rsp_d  = ispm_need_rsp_q;
        ispm_req_d       = ispm_req_q;
        ispm_req_valid_d = ispm_req_valid_q;
        ispm_rsp_d       = ispm_rsp_q;
@@ -332,6 +333,7 @@ import hpdcache_pkg::*;
        ispm_rsp_valid     = 1'b0;
 
        if (ispm_req_submit_pe) begin
+	  ispm_need_rsp_d    = st1_req.need_rsp;
           ispm_req_d         = st1_req;
           ispm_req_o         = st1_req;
           ispm_req_valid_d   = 1'b1;
@@ -347,19 +349,24 @@ import hpdcache_pkg::*;
        end
 
        if (ispm_rsp_valid_i | ispm_rsp_valid_q) begin
-          ispm_rsp_valid   = ispm_req_q.need_rsp;
-          ispm_rsp_valid_d = 1'b0;
+          ispm_rsp_valid   = (ispm_rsp_valid_i ? ispm_req_o.need_rsp : ispm_need_rsp_q) &
+			     ~refill_core_rsp_valid_i &
+			     ~uc_core_rsp_valid_i;
+          ispm_rsp_valid_d = (ispm_rsp_valid_i ? ispm_req_o.need_rsp : ispm_need_rsp_q) & ~ispm_rsp_valid;
+	  ispm_need_rsp_d  = (ispm_rsp_valid_i ? ispm_req_o.need_rsp : ispm_need_rsp_q) & ~ispm_rsp_valid;
        end
     end
 
 
     always_ff @(posedge clk_i, negedge rst_ni) begin
        if(~rst_ni) begin
+	  ispm_need_rsp_q  <= 1'b0;
           ispm_req_q       <= '0;
           ispm_req_valid_q <= 1'b0;
           ispm_rsp_q       <= '0;
           ispm_rsp_valid_q <= 1'b0;
        end else begin
+  	  ispm_need_rsp_q  <= ispm_need_rsp_d;
           ispm_req_q       <= ispm_req_d;
           ispm_req_valid_q <= ispm_req_valid_d;
           ispm_rsp_q       <= ispm_rsp_d;

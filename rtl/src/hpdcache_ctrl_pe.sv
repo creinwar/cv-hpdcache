@@ -288,7 +288,13 @@ module hpdcache_ctrl_pe
             evt_stall_refill_o = core_req_valid_i;
         end
         //  }}}
-
+        //  ISPM request pending
+        //  {{{
+        else if (ispm_req_pend_i) begin
+            //  stall to let the ISPM request finish
+            evt_stall_refill_o = core_req_valid_i;
+        end
+        //  }}}
         //  Normal pipeline operation
         //  {{{
         else begin

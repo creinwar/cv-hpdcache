@@ -65,7 +65,6 @@ import hpdcache_pkg::*;
     //      ISPM request interface
     //         1st cycle
     output logic                          ispm_req_valid_o,
-    input  logic                          ispm_req_ready_i,
     output hpdcache_req_t                 ispm_req_o,
     //         2nd cycle
     output logic                          ispm_req_abort_o,
@@ -324,7 +323,6 @@ import hpdcache_pkg::*;
         .core_rsp_o                         (core_rsp),
 
         .ispm_req_valid_o,
-        .ispm_req_ready_i,
         .ispm_req_o,
         .ispm_req_abort_o,
         .ispm_req_tag_o,
