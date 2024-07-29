@@ -64,7 +64,7 @@ module hpdcache_plru
     way_vector_t [SETS-1:0] plru_q, plru_d;
     way_vector_t            updt_plru;
     way_vector_t            repl_plru;
-    way_vector_t            used_victim_way, unused_victim_way;
+    way_vector_t            used_victim_way_raw, used_victim_way, unused_victim_way;
     //  }}}
 
     //  Victim way selection
@@ -72,8 +72,12 @@ module hpdcache_plru
     hpdcache_prio_1hot_encoder #(.N(WAYS))
         used_victim_select_i (
             .val_i     (~plru_q[repl_set_i] & ~cfg_dspm_ways_i),
-            .val_o     (used_victim_way)
+            .val_o     (used_victim_way_raw)
         );
+
+    // Ensure used_victim_way is always non-zero
+    assign used_victim_way = |used_victim_way_raw ? used_victim_way_raw : cfg_dspm_ways_i + way_vector_t'(1);
+
 
     hpdcache_prio_1hot_encoder #(.N(WAYS))
         unused_victim_select_i (
@@ -100,7 +104,7 @@ module hpdcache_plru
                 if (repl_updt_plru_i) begin
                     //  If all PLRU bits of a given would be set, reset them all
                     //  but the currently accessed way
-                    if (&repl_plru) begin
+                    if (&(repl_plru | cfg_dspm_ways_i)) begin
                         plru_d[repl_set_i] = victim_way_o;
                     end else begin
                         plru_d[repl_set_i] = repl_plru;
@@ -111,7 +115,7 @@ module hpdcache_plru
             updt_i:
                 //  If all PLRU bits of a given would be set, reset them all
                 //  but the currently accessed way
-                if (&updt_plru) begin
+                if (&(updt_plru | cfg_dspm_ways_i)) begin
                     plru_d[updt_set_i] = updt_way_i;
                 end else begin
                     plru_d[updt_set_i] = updt_plru;

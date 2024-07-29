@@ -312,12 +312,16 @@ import hpdcache_pkg::*;
 
     // Pass through the arbitrated request to the ISPM always
     // Only the valid/ready handshake is controlled by the protocol engine
+    assign ispm_req_o         = ispm_req_q;
+    assign ispm_req_valid_o   = ispm_req_valid_q;
     assign ispm_req_abort_o   = st1_req_abort;
     assign ispm_req_tag_o     = ispm_req_o.addr_tag;
     assign ispm_req_pma_o     = ispm_req_o.pma;
     assign ispm_req_pend_ctrl = ispm_req_valid_q;
 
-    // Handle ISPM requests by keeping valid asserted and blocking new core requests
+    assign ispm_rsp           = ispm_rsp_q;
+
+    // Handle ISPM requests by keeping valid asserted and blocking new pipeline
     // until the current request was acknowledged
     always_comb begin
        ispm_need_rsp_d  = ispm_need_rsp_q;
@@ -326,38 +330,37 @@ import hpdcache_pkg::*;
        ispm_rsp_d       = ispm_rsp_q;
        ispm_rsp_valid_d = ispm_rsp_valid_q;
 
-       // Default output assignments
-       ispm_req_o         = ispm_req_q;
-       ispm_req_valid_o   = ispm_req_valid_q;
-       ispm_rsp           = ispm_rsp_q;
-       ispm_rsp_valid     = 1'b0;
+       ispm_rsp_valid   = 1'b0;
 
+       // Start a new request to the ISPM controller
        if (ispm_req_submit_pe) begin
 	  ispm_need_rsp_d    = st1_req.need_rsp;
           ispm_req_d         = st1_req;
-          ispm_req_o         = st1_req;
           ispm_req_valid_d   = 1'b1;
-          ispm_req_valid_o   = 1'b1;
        end
 
+       // If we've gotten a response, save it and deassert the request
        if (ispm_rsp_valid_i) begin
           ispm_req_d       = '0;
-          ispm_rsp         = ispm_rsp_i;
           ispm_rsp_d       = ispm_rsp_i;
           ispm_req_valid_d = 1'b0;
           ispm_rsp_valid_d = 1'b1;
        end
 
-       if (ispm_rsp_valid_i | ispm_rsp_valid_q) begin
-          ispm_rsp_valid   = (ispm_rsp_valid_i ? ispm_req_o.need_rsp : ispm_need_rsp_q) &
-			     ~refill_core_rsp_valid_i &
-			     ~uc_core_rsp_valid_i;
-          ispm_rsp_valid_d = (ispm_rsp_valid_i ? ispm_req_o.need_rsp : ispm_need_rsp_q) & ~ispm_rsp_valid;
-	  ispm_need_rsp_d  = (ispm_rsp_valid_i ? ispm_req_o.need_rsp : ispm_need_rsp_q) & ~ispm_rsp_valid;
+       // If we've gotten a response in the past, forward it to
+       // the core, **iff** the core actually needs a response and there
+       // are no refills or uncached responses pending
+       if (ispm_rsp_valid_q) begin
+	  ispm_rsp_valid   = ispm_need_rsp_q &
+			    ~refill_core_rsp_valid_i &
+			    ~uc_core_rsp_valid_i;
+          ispm_rsp_valid_d = ispm_need_rsp_q & ~ispm_rsp_valid;
+	  ispm_need_rsp_d  = ispm_need_rsp_q & ~ispm_rsp_valid;
        end
     end
 
 
+    // Implement the necessary FFs
     always_ff @(posedge clk_i, negedge rst_ni) begin
        if(~rst_ni) begin
 	  ispm_need_rsp_q  <= 1'b0;
@@ -899,19 +902,19 @@ import hpdcache_pkg::*;
                                  st1_rsp_valid                              |
                                  ispm_rsp_valid,
            core_rsp_o.rdata   = (refill_core_rsp_valid_i ? refill_core_rsp_i.rdata :
-                                (uc_core_rsp_valid_i     ? uc_core_rsp_i.rdata     :
+                                ((uc_core_rsp_valid_i & uc_core_rsp_ready_o)     ? uc_core_rsp_i.rdata     :
                                 (ispm_rsp_valid          ? ispm_rsp.rdata          :
                                  st1_read_data))),
            core_rsp_o.sid     = (refill_core_rsp_valid_i ? refill_core_rsp_i.sid   :
-                                (uc_core_rsp_valid_i     ? uc_core_rsp_i.sid       :
+                                ((uc_core_rsp_valid_i & uc_core_rsp_ready_o)     ? uc_core_rsp_i.sid       :
                                 (ispm_rsp_valid          ? ispm_rsp.sid            :
                                  st1_req.sid))),
            core_rsp_o.tid     = (refill_core_rsp_valid_i ? refill_core_rsp_i.tid   :
-                                (uc_core_rsp_valid_i     ? uc_core_rsp_i.tid       :
+                                ((uc_core_rsp_valid_i & uc_core_rsp_ready_o)     ? uc_core_rsp_i.tid       :
                                 (ispm_rsp_valid          ? ispm_rsp.tid            :
                                  st1_req.tid))),
            core_rsp_o.error   = (refill_core_rsp_valid_i ? refill_core_rsp_i.error :
-                                (uc_core_rsp_valid_i     ? uc_core_rsp_i.error     :
+                                ((uc_core_rsp_valid_i & uc_core_rsp_ready_o)     ? uc_core_rsp_i.error     :
                                  1'b0)),
            core_rsp_o.aborted = st1_rsp_aborted;
     //  }}}
