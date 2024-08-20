@@ -393,17 +393,15 @@ module hpdcache_ctrl_pe
 
                             if(st1_req_is_dspm_req_i) begin
                                 st1_rsp_valid_o = st1_req_need_rsp_i;
-				//  If the request comes from the replay table, free the
-				//  corresponding RTAB entry
-				st1_rtab_commit_o = st1_req_rtab_i;
+                                //  If the request comes from the replay table, free the
+                                //  corresponding RTAB entry
+                                st1_rtab_commit_o = st1_req_rtab_i;
 
-				//  Add a NOP when replaying a request, and there is no available
-				//  request from the replay table.
-				st1_nop = st1_req_rtab_i & ~rtab_req_valid_i;
+                                st1_nop = 1'b0;
 
-				//  Performance event
-				evt_read_req_o     = ~st1_req_is_cmo_prefetch_i;
-				evt_prefetch_req_o =  st1_req_is_cmo_prefetch_i;
+                                //  Performance event
+                                evt_read_req_o     = ~st1_req_is_cmo_prefetch_i;
+                                evt_prefetch_req_o =  st1_req_is_cmo_prefetch_i;
                             end
                             else if(st1_req_is_ispm_req_i) begin
                                 ispm_req_submit_o  = 1'b1;
@@ -534,6 +532,9 @@ module hpdcache_ctrl_pe
 
                                 //  Write in the data RAM
                                 st1_req_cachedata_write_enable_o = 1'b1;
+
+                                //  Never propagate the write outwards
+                                wbuf_write_valid_o = 1'b0;
 
                                 //  Performance event
                                 evt_write_req_o = 1'b1;
